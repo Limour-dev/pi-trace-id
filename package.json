@@ -1,0 +1,21 @@
+{
+  "name": "pi-trace-id",
+  "version": "1.0.0",
+  "description": "pi extension: inject AH-Thread-Id / AH-Trace-Id tracing headers on every provider request",
+  "type": "module",
+  "license": "GPL-3.0",
+  "keywords": ["pi-package", "pi-extension", "tracing", "trace-id", "thread-id"],
+  "files": ["pi-trace-id.ts", "README.md", "LICENSE"],
+  "scripts": {
+    "typecheck": "tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler pi-trace-id.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "pi": {
+    "extensions": ["./pi-trace-id.ts"]
+  }
+}
