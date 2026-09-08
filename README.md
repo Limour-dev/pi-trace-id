@@ -4,10 +4,10 @@ pi 扩展：给每一次 provider 请求注入线程/追踪请求头，兼容 Ax
 
 在 HTTP 头层（`before_provider_headers`）为每次出站请求写入：
 
-- **Thread 头**（默认 `AH-Thread-Id`）= pi 会话 UUID（`ctx.sessionManager.getSessionId()`），贯穿整个对话会话稳定不变。
-- **Trace 头**（默认 `AH-Trace-Id`）= 当前分支里**最近一条 user 消息的条目 id**。
+- **Thread 头**（默认 `AH-Thread-Id`）= 项目路径的**简单哈希**（`ctx.cwd` 经 FNV-1a 派生哈希），同一项目下的所有会话共享同值。
+- **Trace 头**（默认 `AH-Trace-Id`）= 原 Thread 值，即会话 UUID（`ctx.sessionManager.getSessionId()`），但统一改写为符合 RFC 4122 的 v4 格式 `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`（版本位固定 `4`、变体位归一到 `8/9/a/b`）。
 
-> 语义来自 tracing.md：一条用户消息会触发多次 agent 请求，它们应归入同一个 Trace；只有新用户消息才开启新 Trace。因为 agent 迭代只追加 assistant/tool 条目、不追加新 user 条目，故"最近 user 条目 id"在一次作答期间恒定、收到下一条用户消息才旋转 —— 零状态机、零持久化。该 id 存于会话文件，`/resume`、compact、恢复会话时都能一致复原。
+> 原会话 UUID 是 v7（版本位 `7`），本扩展仅在写入请求头前做确定性格式改写：不改变随机来源，只把版本/变体位合规化，从而满足 RFC 4122 v4 的格式约束。
 
 一个 hook 同时覆盖 OpenAI 风格与 Anthropic 风格(`/v1/messages`)两种传输；每次 provider 请求触发一次，retry 复用同一批头、不重复触发。
 
@@ -61,10 +61,10 @@ const VERBOSE = true;                 // 注入时打印日志
 [pi-trace-id] { "AH-Thread-Id": "...", "AH-Trace-Id": "..." }
 ```
 
-可在 AxonHub 管理后台 Traces 页看到同一条用户消息触发的多次请求归入同一 Trace、多条 Trace 经 Thread 关联还原完整会话。
+每个对话会话（一条 Trace，即原会话 UUID 的 v4 改写）都会带上前缀项目哈希（AH-Thread-Id），可在 AxonHub 管理后台按项目 Thread 归组查看多个会话的 Trace。
 
 ## 明确不做（Scope Out）
 
 - 不做 payload 改写（不写 `metadata.user_id` / Claude Code / Codex 通道），只注入 HTTP 请求头。
-- 不做 uuid 生成：Trace 值直传 pi user 消息条目 id，最简、可 /resume 复原。
+- 不做新的随机 uuid 生成：Trace 直接沿用会话 UUID，仅做确定性 v4 格式改写；Thread 由项目路径确定性哈希而来，二者均可跨会话稳定复现。
 - 不做 Trace/Thread 值存外部存储与跨进程协调。
