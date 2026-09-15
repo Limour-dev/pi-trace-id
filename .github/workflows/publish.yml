@@ -1,0 +1,57 @@
+name: Publish
+
+# 发版：npm version patch && git push --follow-tags
+#
+# 走 npm Trusted Publishing（OIDC），不需要 NPM_TOKEN secret。
+# 前置条件：在 https://www.npmjs.com/package/pi-trace-id/access 里添加
+#   Publisher: GitHub Actions
+#   Organization/User: Limour-dev
+#   Repository: pi-trace-id
+#   Workflow filename: publish.yml
+#   Environment: (留空)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC：换取 npm 的短期发布凭证 + 生成 provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # 故意不设 registry-url：它会往 .npmrc 写一行 authToken 占位，
+          # 反而可能遮住 OIDC 交换。npm 默认就发 registry.npmjs.org。
+
+      - name: Use npm >= 11.5 (Trusted Publishing)
+        run: npm install -g npm@latest
+
+      - name: Check tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
+      - name: Install dev dependencies (types only)
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify tarball stays tiny
+        run: npm pack --dry-run
+
+      - name: Publish
+        run: npm publish --provenance --access public
