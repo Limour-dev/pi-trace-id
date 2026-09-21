@@ -18,11 +18,10 @@ pi 扩展：给每一次 provider 请求注入线程/追踪请求头，兼容 Ax
 
 ## 安装
 
-本仓库是标准 pi package（`package.json` 的 `pi` manifest + `pi-package` keyword），可通过 `pi install` 从 git 或 npm 安装：
+本仓库是标准 pi package（`package.json` 的 `pi` manifest + `pi-package` keyword），可通过 `pi install` 从 git 安装：
 
 ```bash
 pi install git:github.com/Limour-dev/pi-trace-id
-pi install npm:pi-trace-id          # 发布到 npm 之后
 ```
 
 默认写入用户级 settings（`~/.pi/agent/settings.json`）；加 `-l` 写入项目级 settings：
@@ -35,17 +34,12 @@ pi install -l git:github.com/Limour-dev/pi-trace-id
 
 ### 安装体积
 
-本扩展运行时零依赖（唯一的 import 是 `import type`，转译时被完全擦除），安装不应额外拉取宿主包：
-
-| 安装方式 | 额外占用 |
-| --- | --- |
-| `pi install npm:pi-trace-id` | ~56 KB |
-| `pi install git:...` | ~0（无 runtime 依赖，`npm install` 直接 no-op） |
+本扩展运行时零依赖（唯一的 import 是 `import type`，转译时被完全擦除），git 安装额外占用 ~0，不会拉取宿主包。
 
 两点保障：
 
 1. `peerDependenciesMeta` 把 `@earendil-works/pi-coding-agent` 标为 `optional`，npm/bun/pnpm 都不会再自动装它。
-   pi 在 npm 路径本来就传了 `--legacy-peer-deps`，但 **git 路径只传 `--omit=dev`**（见 `dist/core/package-manager.js` 的
+   pi 的 git 安装路径只传 `--omit=dev`（见 `dist/core/package-manager.js` 的
    `getGitDependencyInstallArgs`），所以不带这个标记时 git 安装会额外拖进一份 ~440 MB 的宿主副本。
 2. 仓库根的 `.npmrc` 设了 `legacy-peer-deps` + `omit=optional`，作为 git 安装路径的兜底，并跳过 esbuild 那 26 个
    预编译平台二进制（单个可用，其余约 284 MB 是死重量）。
