@@ -24,7 +24,7 @@ const TRACE_HEADER = "AH-Trace-Id"; // 追踪请求头名
 // 是否覆盖上游/用户已显式设置的同名头。默认 false = 尊重已存在的值。
 const OVERRIDE_EXISTING = false;
 // 打印注入日志（调试用）
-const VERBOSE = true;
+const VERBOSE = false;
 // ---------------------------------------------------------------
 
 interface TraceHeaders {
