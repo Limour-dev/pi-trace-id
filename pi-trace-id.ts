@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
  * pi-trace-id —— 给每次 provider 请求注入追踪/线程请求头（AxonHub 风格）。
  *
  * 语义映射：
- *   Thread（AH-Thread-Id）  = 项目路径的简单哈希（同一项目的所有会话共享同值）
+ *   Thread（AH-Thread-Id）  = 项目路径的确定性 v4 UUID 派生值（sha256(cwd) 取前 16 字节并合规化），
+ *                            同一项目的所有会话共享同值。
  *   Trace （AH-Trace-Id ）  = 原 AH-Thread-Id 的值（会话 UUID，sessionManager.getSessionId()），
  *                            但统一重写为符合 RFC 4122 的 v4 格式
  *                            xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx。
@@ -43,23 +45,13 @@ function hasHeader(headers: Record<string, string | null | undefined>, name: str
 	return Object.keys(headers).some((k) => k.toLowerCase() === lower);
 }
 
-// 简单的字符串哈希（FNV-1a 派生），返回定长小写 hex。
-// 用于把项目路径压成一个短 id 作为 AH-Thread-Id（不必防碰撞，够稳定即可）。
-function simpleHash(input: string): string {
-	let a = 0x811c9dc5;
-	let b = 0x01000193;
-	let c = 0x85ebca6b;
-	let d = 0xc2b2ae35;
-	for (let i = 0; i < input.length; i++) {
-		const ch = input.charCodeAt(i);
-		a ^= ch; a = Math.imul(a, 0x01000193);
-		b ^= a; b = Math.imul(b, 0x85ebca6b);
-		c ^= b; c = Math.imul(c, 0xc2b2ae35);
-		d ^= c; d = Math.imul(d, 0x27d4eb2f);
-	}
-	return [a, b, c, d].map((x) => (x >>> 0).toString(16).padStart(8, "0")).join("");
+// 把任意字符串确定性地派生为 RFC 4122 v4 UUID：
+//   sha256(input) 取前 32 位 hex，再合规化版本位/变体位（见 asV4Uuid）。
+// 同一输入恒定同值：不需要随机数，也不需要落盘缓存。
+function uuidV4FromString(input: string): string {
+	const hex = createHash("sha256").update(input).digest("hex").slice(0, 32);
+	return asV4Uuid(hex) as string;
 }
-
 // 把任意 UUID 字符串确定性改写为 RFC 4122 v4 格式（xxxx…-4xxx-yxxx…）：
 //   版本位(第 13 个 hex)固定为 4；变体位(第 17 个 hex)归一到 8/9/a/b。
 // 非 32 位 hex 的输入（会话 UUID 意外损坏时）返回 undefined。
@@ -96,15 +88,11 @@ function latestUserEntryId(entries: readonly unknown[] | undefined): string | un
 
 // 把 session 条目 id 改写成 RFC 4122 v4 格式的 UUID：
 //   条目 id 通常是 8 位 hex（也可能是完整 UUID），32 位 hex 直接改写；
-//   不足 32 位 hex 时用确定性哈希扩到 32 位 hex 再改写（同一 id 恒定同值）。
+//   其余情况用 sha256 确定性派生 32 位 hex 再改写（同一 id 恒定同值）。
 function asV4FromEntryId(entryId: string | undefined): string | undefined {
 	if (entryId === undefined || entryId === "") return undefined;
-	const direct = asV4Uuid(entryId);
-	if (direct !== undefined) return direct;
-	const hex = entryId.replace(/-/g, "").toLowerCase();
-	return /^[0-9a-f]+$/.test(hex) ? asV4Uuid(simpleHash(hex)) : undefined;
+	return asV4Uuid(entryId) ?? uuidV4FromString(entryId);
 }
-
 // 组装要写入的头。
 function buildHeaders(ctx: {
 	cwd: string;
@@ -117,8 +105,8 @@ function buildHeaders(ctx: {
 	const sm = ctx.sessionManager;
 	const entries = sm.getBranch?.() ?? sm.getEntries?.();
 	return {
-		// Thread = 项目路径哈希（同一项目共享）。
-		thread: ctx.cwd ? simpleHash(ctx.cwd) : undefined,
+		// Thread = 项目路径派生的 v4 UUID（同一项目共享、跨会话稳定）。
+		thread: ctx.cwd ? uuidV4FromString(ctx.cwd) : undefined,
 		// Trace = 原 AH-Thread-Id（会话 UUID），改写为 RFC 4122 v4 格式。
 		trace: asV4Uuid(ctx.sessionManager.getSessionId()),
 		// Turn = 最近一条 user 消息的条目 id，同样改写为 RFC 4122 v4 格式。
